@@ -1,0 +1,36 @@
+version: "2.4"
+
+services:
+  snort:
+    image: frapsoft/snort:latest
+    container_name: snort
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    volumes:
+      - ./snort-lab/snort.conf:/etc/snort/snort.conf:ro
+      - ./snort-lab/snort_defaults.conf:/etc/snort/snort_defaults.conf:ro
+      - ./snort-lab/rules:/etc/snort/rules:ro
+      - ./snort-lab/so_rules:/etc/snort/so_rules:ro
+      - ./snort-lab/preproc_rules:/etc/snort/preproc_rules:ro
+    command:
+      - -c
+      - /etc/snort/snort.conf
+      - -i
+      - any # captura em qualquer interface
+      - -A
+      - console
+      - -v # verbose
+    network_mode: "service:victim"
+    depends_on:
+      - victim
+
+  victim:
+    image: nginx:latest
+    container_name: victim
+
+  attacker:
+    image: nicolaka/netshoot:latest
+    container_name: attacker
+    tty: true
+    stdin_open: true

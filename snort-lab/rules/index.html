@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Parte Prática: IDS com Snort em Docker</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background: #f5f7fa;
+        color: #333;
+        margin: 0;
+        padding: 1.5rem;
+      }
+      .container {
+        max-width: 900px;
+        margin: 0 auto;
+        background: #fff;
+        padding: 2rem;
+        border-radius: 8px;
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+      }
+      h1,
+      h2,
+      h3 {
+        color: #1e40af;
+        margin-top: 1.5rem;
+        margin-bottom: 1rem;
+      }
+      p {
+        line-height: 1.6;
+        margin-bottom: 1rem;
+      }
+      ul {
+        margin-left: 1.2rem;
+        margin-bottom: 1rem;
+      }
+      li {
+        margin-bottom: 0.5rem;
+      }
+      code {
+        background: #eef2ff;
+        padding: 0.2rem 0.4rem;
+        border-radius: 4px;
+        font-family: "Courier New", monospace;
+        font-size: 0.95rem;
+      }
+      pre {
+        background: #eef2ff;
+        padding: 1rem;
+        border-left: 4px solid #3b82f6;
+        overflow-x: auto;
+        border-radius: 4px;
+        margin-bottom: 1.5rem;
+      }
+      .note {
+        background: #fffbeb;
+        border-left: 4px solid #f59e0b;
+        padding: 1rem;
+        margin-bottom: 1.5rem;
+        border-radius: 4px;
+      }
+      .footer {
+        text-align: center;
+        margin-top: 2rem;
+        font-size: 0.9rem;
+        color: #555;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Parte Prática do IDS com Snort em Docker</h1>
+
+      <h2>1. Introdução Rápida ao Snort</h2>
+      <p>
+        O Snort é um sistema de detecção de intrusos (IDS) open-source que
+        monitora tráfego de rede em tempo real usando regras de assinaturas. Ele
+        captura pacotes em uma interface de rede, compara contra conjuntos de
+        regras e gera alertas quando detecta atividades suspeitas.
+      </p>
+
+      <h2>2. Visão Geral do Ambiente Docker</h2>
+      <p>
+        Criamos um laboratório containerizado com três serviços principais,
+        todos conectados a uma mesma rede Docker chamada <code>lab-net</code>:
+      </p>
+      <ul>
+        <li>
+          <strong>snort</strong>: container que executa o Snort em modo IDS,
+          escutando a interface <code>eth0</code> e aplicando regras.
+        </li>
+        <li>
+          <strong>victim</strong>: container rodando Nginx (servidor web) para
+          gerar tráfego HTTP e servir como alvo.
+        </li>
+        <li>
+          <strong>attacker</strong>: container netshoot que inclui ferramentas
+          de rede (ping, nmap, curl, tcpdump) para simular ataques.
+        </li>
+      </ul>
+
+      <h2>3. Por que cada imagem Docker foi escolhida?</h2>
+      <ul>
+        <li>
+          <strong>snort (frapsoft/snort:latest)</strong>: contém o Snort
+          pré-instalado e configurado para uso como IDS. Evita etapas de
+          instalação manual e garante compatibilidade com versões recentes.
+        </li>
+        <li>
+          <strong>victim (nginx:alpine)</strong>: Nginx é leve e fácil de
+          configurar como servidor HTTP. A variante Alpine reduz tamanho e uso
+          de recursos, ideal para um alvo web simples.
+        </li>
+        <li>
+          <strong>attacker (nicolaka/netshoot:latest)</strong>: imagem baseada
+          em Alpine que já inclui muitas ferramentas de diagnóstico e ataque
+          (nmap, curl, ping, tcpdump, etc.). Facilita a simulação de tráfego
+          malicioso sem instalar pacotes extras.
+        </li>
+      </ul>
+
+      <h2>4. Criação e Gerenciamento da Rede Docker</h2>
+      <p>
+        Inicialmente, o Snort não detectava tráfego porque os containers estavam
+        em redes isoladas. Para resolver, definimos uma rede customizada chamada
+        <code>lab-net</code>:
+      </p>
+      <pre><code>networks:
+  lab-net:
+    driver: bridge</code></pre>
+      <p>
+        Todos os serviços foram conectados a esta rede, garantindo que
+        compartilhem o mesmo segmento de endereçamento e que o Snort possa
+        capturar tráfego entre <code>victim</code> e <code>attacker</code>.
+      </p>
+      <pre><code>services:
+  snort:
+    networks:
+      - lab-net
+
+  victim:
+    networks:
+      - lab-net
+
+  attacker:
+    networks:
+      - lab-net</code></pre>
+      <p class="note">
+        <strong>Nota:</strong> Também atribuímos IPs fixos para clareza nos
+        testes (opcional):
+      </p>
+      <pre><code>services:
+  snort:
+    networks:
+      lab-net:
+        ipv4_address: 172.20.0.10
+
+  victim:
+    networks:
+      lab-net:
+        ipv4_address: 172.20.0.20
+
+  attacker:
+    networks:
+      lab-net:
+        ipv4_address: 172.20.0.30</code></pre>
+
+      <h2>5. Arquitetura de Pastas</h2>
+      <pre><code>ids-labs/
+├── docker-compose.yml
+└── snort-lab/
+    ├── snort.conf
+    ├── rules/
+    │   └── local.rules
+    └── logs/</code></pre>
+
+      <h2>6. Configuração do Docker Compose</h2>
+      <p>
+        O <code>docker-compose.yml</code> orquestra criação da rede e inicializa
+        containers com volumes e comandos adequados:
+      </p>
+      <pre><code>version: '3.8'
+
+networks:
+  lab-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+services:
+  snort:
+    image: frapsoft/snort:latest
+    container_name: snort-ids
+    networks:
+      lab-net:
+        ipv4_address: 172.20.0.10
+    volumes:
+      - ./snort-lab/snort.conf:/etc/snort/snort.conf:ro
+      - ./snort-lab/rules:/etc/snort/rules:ro
+      - ./snort-lab/logs:/var/log/snort
+    command: >
+      snort -c /etc/snort/snort.conf 
+      -i eth0 -A console -l /var/log/snort
+    restart: unless-stopped
+
+  victim:
+    image: nginx:alpine
+    container_name: victim-server
+    networks:
+      lab-net:
+        ipv4_address: 172.20.0.20
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+
+  attacker:
+    image: nicolaka/netshoot:latest
+    container_name: attacker-machine
+    networks:
+      lab-net:
+        ipv4_address: 172.20.0.30
+    tty: true
+    stdin_open: true
+    restart: unless-stopped</code></pre>
+
+      <h2>7. Onde ficarão as regras do Snort?</h2>
+      <p>
+        Regras personalizadas são definidas em
+        <code>snort-lab/rules/local.rules</code>. Exemplo para detectar port
+        scan:
+      </p>
+      <pre><code># Regras Snort - local.rules
+
+# Detecta port scan
+alert tcp any any -> any any (msg:"Port Scan Detected"; flags:S; detection_filter:track by_src, count 10, seconds 5; sid:1000001; rev:1;)
+
+# Detecta tentativas de SQL Injection
+alert tcp any any -> any 80 (msg:"HTTP SQL Injection Attempt"; content:"union"; nocase; content:"select"; nocase; sid:1000002; rev:1;)</code></pre>
+
+      <h2>8. Como rodar o ambiente?</h2>
+      <pre><code># 1. Navegar para o diretório do projeto
+cd ids-labs
+
+# 2. Limpar containers anteriores (opcional)
+docker-compose down --volumes
+docker system prune -f
+
+# 3. Subir containers
+docker-compose up -d
+
+# 4. Verificar status dos containers
+docker-compose ps</code></pre>
+      <p class="note">
+        Todos os containers devem aparecer com status “Up” na mesma rede
+        <code>lab-net</code>. Caso contrário, verifique se o Docker Compose
+        aplicou corretamente a rede.
+      </p>
+
+      <h2>9. Como testar o IDS?</h2>
+      <p>
+        Para simular ataques, entre no container <code>attacker-machine</code>:
+      </p>
+      <pre><code>docker exec -it attacker-machine bash</code></pre>
+      <p>
+        Observação: Em alguns testes, pode-se usar o nome do serviço (ex.:
+        <code>victim-server</code>) em vez do IP. Se preferir usar o IP
+        diretamente, execute
+        <code
+          >docker inspect -f
+          '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}
+          nome_do_container'</code
+        >
+        para descobrir o endereço correto do container. Caso o
+        <code>docker-compose.yml</code> atribua um IP fixo, use exatamente esse
+        IP (por exemplo, <code>172.20.0.20</code>). Se não houver IP fixo,
+        sempre verifique o IP real para que os testes sejam direcionados
+        corretamente.
+      </p>
+      <p>
+        Este ambiente baseado em containers funciona tanto em Windows quanto em
+        Linux, pois o Docker abstrai o sistema operacional e utiliza uma base
+        Linux para executar os containers. Mesmo em Windows, o Docker Desktop
+        roda uma máquina virtual Linux por trás, garantindo que as mesmas
+        instruções valem para ambas as plataformas.
+      </p>
+      <p>Em seguida, execute exemplos de testes:</p>
+      <h3>9.1 Port Scanning</h3>
+      <pre><code>nmap -sS -p 1-1000 172.20.0.20  # Varredura stealth SYN
+nmap -sT 172.20.0.20           # Conexão TCP completa</code></pre>
+      <h3>9.2 Ataque HTTP (SQL Injection)</h3>
+      <pre><code>curl "http://172.20.0.20/?id=1' UNION SELECT * FROM users--"</code></pre>
+      <h3>9.3 ICMP Flood</h3>
+      <pre><code>ping -c 15 -i 0.1 172.20.0.20</code></pre>
+      <p>Para visualizar alertas em tempo real:</p>
+      <pre><code>docker-compose logs -f snort | grep "[**]"</code></pre>
+
+      <h2>10. Considerações Finais</h2>
+      <p>
+        Com a rede Docker customizada (<code>lab-net</code>) e a escolha
+        adequada das imagens (Snort, Nginx/Alpine e Netshoot), garantimos a
+        visibilidade de todo o tráfego e a detecção de ataques em tempo real.
+        Este laboratório demonstra como implantar rapidamente um IDS em
+        containers, facilitando testes e análises de segurança.
+      </p>
+
+      <div class="footer">
+        <p>Gerado em 02/06/2025 para o projeto de Segurança de Sistemas</p>
+      </div>
+    </div>
+  </body>
+</html>
