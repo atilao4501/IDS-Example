@@ -17,20 +17,34 @@ services:
       - -c
       - /etc/snort/snort.conf
       - -i
-      - any # captura em qualquer interface
+      - eth0 # captura apenas a interface de rede do victim
       - -A
       - console
-      - -v # verbose
-    network_mode: "service:victim"
     depends_on:
       - victim
+    network_mode: "service:victim"
 
   victim:
     image: nginx:latest
     container_name: victim
+
+    networks:
+      corp-net:
+        ipv4_address: 192.168.10.20
 
   attacker:
     image: nicolaka/netshoot:latest
     container_name: attacker
     tty: true
     stdin_open: true
+
+    networks:
+      corp-net:
+        ipv4_address: 192.168.20.50
+
+networks:
+  corp-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.0.0/16
